@@ -352,9 +352,12 @@ const firebaseConfig = {
   // appId: "1:000000000000:web:xxxxxxxx"
 };
 
-/* 2) CÓDIGOS DAS LOJAS — a senha de cada loja no login é o código dela.
-      Preencha com o número/código real de cada loja. Enquanto ficar vazio,
-      a senha provisória continua sendo "loja123" (pra não travar os testes). */
+/* 2) CÓDIGOS DE ACESSO — com o Firebase LIGADO, o código de cada loja e do
+      financeiro é a SENHA no Firebase Authentication (e-mail/senha), criada por
+      você no console (passo a passo em FIREBASE_SETUP.md). Por isso os códigos
+      reais NÃO ficam aqui no código (e não vão pro repositório).
+      Os valores abaixo servem só pro modo DEMONSTRAÇÃO (sem Firebase):
+      vazio = senha de teste "loja123"; o financeiro de teste é "fin123". */
 const STORE_CODES = {
   'sao-sebastiao':        '',
   'penedo':               '',
@@ -407,8 +410,13 @@ const Store = (() => {
           import(SDK + 'firebase-auth.js'),
         ]);
         const fbApp = appMod.initializeApp(firebaseConfig);
-        // login anônimo: baseline de segurança p/ as regras exigirem usuário autenticado
-        try{ await authMod.signInAnonymously(authMod.getAuth(fbApp)); }catch(_){}
+        const authInst = authMod.getAuth(fbApp);
+        // login REAL (e-mail/senha): o código digitado é a senha no Firebase Auth
+        Store.signIn  = async (email, pwd) => {
+          try{ await authMod.signInWithEmailAndPassword(authInst, email, pwd); return { ok:true }; }
+          catch(e){ return { ok:false, error:(e && e.code) ? e.code : String(e) }; }
+        };
+        Store.signOut = async () => { try{ await authMod.signOut(authInst); }catch(_){} };
         const db = fs.getFirestore(fbApp);
         const col = fs.collection(db, 'closings');
         const ref = key => fs.doc(db, 'closings', key);
@@ -433,6 +441,8 @@ const Store = (() => {
   return {
     usingFirebase, online:false,
     ready: () => ready,
+    signIn:  async () => ({ ok:false, error:'auth-indisponivel' }),  // sobrescrito quando o Firebase conecta
+    signOut: async () => {},
     get:  async (k)    => { await ready; return backend.get(k); },
     set:  async (k, v) => { await ready; return backend.set(k, v); },
     del:  async (k)    => { await ready; return backend.del(k); },
@@ -444,7 +454,7 @@ const Store = (() => {
    Loja entra com o NOME DA LOJA (usuário) e o CÓDIGO DA LOJA (senha).
    Aceita também o id curto (ex.: penedo) e o nome sem o prefixo "Loja ". */
 const norm = s => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-const USERS = { financeiro: { username:'financeiro', password:'fin123', name:'Equipe Financeira', role:'financeiro' } };
+const USERS = { financeiro: { username:'financeiro', password:'fin123', name:'Equipe Financeira', role:'financeiro' } };  // fin123 = só demonstração; código real fica no Firebase Auth
 STORES.forEach(s => {
   const senha = String(STORE_CODES[s.id] || '').trim() || 'loja123';   // código da loja; provisório "loja123" se vazio
   const u = { username:s.user, password:senha, name:s.name, role:'loja', storeId:s.id };
@@ -519,13 +529,25 @@ let editing = null;              // {storeId, createdAt} quando editando
 let route = { name:'login', params:{} };
 const app = document.getElementById('app');
 
-function login(username, password){
-  const u = USERS[norm(username)];
-  if(!u || u.password !== String(password)) return { ok:false, error:'Usuário ou senha não conferem.' };
+const LOGIN_EMAIL_DOMAIN = 'acqua.app';   // e-mails internos do Firebase Auth: <id>@acqua.app
+async function login(target, code){
+  const isFin = target.kind === 'financeiro';
+  const email = (isFin ? 'financeiro' : target.storeId) + '@' + LOGIN_EMAIL_DOMAIN;
+  const nome  = isFin ? 'Equipe Financeira' : target.name;
+  if(Store.usingFirebase){
+    await Store.ready();
+    const r = await Store.signIn(email, String(code));
+    if(!r.ok) return { ok:false, error:'Código incorreto.' };
+    session = { username:(isFin ? 'financeiro' : target.user), name:nome, role:(isFin ? 'financeiro' : 'loja'), storeId:(isFin ? null : target.storeId), email };
+    return { ok:true };
+  }
+  // modo DEMONSTRAÇÃO (sem Firebase): confere contra os códigos de teste locais
+  const u = USERS[norm(target.user)];
+  if(!u || u.password !== String(code)) return { ok:false, error:'Código incorreto.' };
   session = { username:u.username, name:u.name, role:u.role, storeId:u.storeId || null };
   return { ok:true };
 }
-function logout(){ session = null; state.operator = null; editing = null; navigate('login'); }
+function logout(){ Store.signOut(); session = null; state.operator = null; editing = null; navigate('login'); }
 function navigate(name, params={}){ route = { name, params }; render(); }
 const actor = () => session.role === 'loja' ? (state.operator || session.name) : session.name;
 
@@ -821,45 +843,84 @@ function bindHeaderControls(exportStoreIds){
 
 /* ---------- Tela: Login ---------- */
 function viewLogin(){
-  app.innerHTML = `
-  <div class="login-screen">
-    <div class="login-card glass">
-      <div class="login-head"><div class="login-orb"></div><h1>Acqua Fluxo</h1><p>Acesse para registrar e conferir o caixa das lojas</p></div>
-      <div id="loginForm">
-        <div class="field"><label for="u">Loja ou usuário</label><input class="input" id="u" autocomplete="username" placeholder="ex.: Penedo  ·  ou: financeiro" autocapitalize="none" spellcheck="false"></div>
-        <div class="field"><label for="p">Senha <span class="hint">(loja: código da loja)</span></label><input class="input" id="p" type="password" autocomplete="current-password" placeholder="••••••"></div>
-        <button class="btn" type="button" id="loginBtn">Entrar</button>
+  const FIN_ORB = 'background:rgba(214,178,90,.16); border:1px solid rgba(214,178,90,.55); box-shadow:0 0 18px rgba(214,178,90,.28), inset 0 0 12px rgba(214,178,90,.14); color:#f0d79a;';
+  const storeOrb = color => `background:${color}26; border:1px solid ${color}66; box-shadow:0 0 18px ${color}33, inset 0 0 12px ${color}1f; color:#eaf6f8;`;
+  const inicial = name => name.replace(/^Loja\s+/, '').trim().charAt(0).toUpperCase();
+
+  /* Passo 1 — escolher o acesso (cards: Financeiro + cada loja) */
+  function renderPicker(){
+    const storeCards = STORES.map(s => `
+      <button class="store-card glass" type="button" data-pick="loja" data-id="${s.id}">
+        <div class="store-top">
+          <div class="store-orb" style="${storeOrb(s.color)}">${esc(inicial(s.name))}</div>
+          <div><h3>${esc(s.name)}</h3><div class="loc">${esc(s.loc)}</div></div>
+        </div>
+      </button>`).join('');
+    app.innerHTML = `
+    <div class="login-screen">
+      <div class="login-card glass" style="max-width:840px;">
+        <div class="login-head"><div class="login-orb"></div><h1>Acqua Fluxo</h1><p>Escolha o seu acesso para começar</p></div>
+        <div class="store-grid">
+          <button class="store-card glass" type="button" data-pick="financeiro">
+            <div class="store-top">
+              <div class="store-orb" style="${FIN_ORB}">F</div>
+              <div><h3>Financeiro</h3><div class="loc">Confere todas as lojas</div></div>
+            </div>
+          </button>
+          ${storeCards}
+        </div>
+      </div>
+    </div>`;
+    app.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => {
+      if(b.dataset.pick === 'financeiro') renderCode({ kind:'financeiro', name:'Financeiro', user:'financeiro', storeId:null });
+      else { const s = storeById(b.dataset.id); renderCode({ kind:'loja', name:s.name, user:s.user, color:s.color, storeId:s.id }); }
+    }));
+  }
+
+  /* Passo 2 — digitar o código de acesso da loja/financeiro escolhido */
+  function renderCode(target){
+    const orb = target.kind === 'financeiro' ? FIN_ORB : storeOrb(target.color);
+    const ini = target.kind === 'financeiro' ? 'F' : inicial(target.name);
+    app.innerHTML = `
+    <div class="login-screen">
+      <div class="login-card glass">
+        <div class="login-head">
+          <div class="store-orb" style="${orb} width:60px;height:60px;border-radius:15px;margin:0 auto 14px;font-size:22px;">${esc(ini)}</div>
+          <h1 style="font-size:20px;">${esc(target.name)}</h1>
+          <p>Digite o código de acesso</p>
+        </div>
+        <div class="field"><label for="code">Código</label><input class="input" id="code" type="password" inputmode="numeric" autocomplete="off" placeholder="• • • •" autocapitalize="none" spellcheck="false"></div>
+        <button class="btn" type="button" id="codeBtn">Entrar</button>
+        <button class="btn ghost sm" type="button" id="backBtn" style="width:100%;margin-top:10px;">‹ Trocar acesso</button>
         <div class="err" id="loginErr"></div>
       </div>
-      <details class="demo">
-        <summary>Como entrar</summary>
-        <div class="accts">
-          <div class="acct" data-u="financeiro" data-p="fin123"><b>Financeiro (vê e confere todas)</b><code>financeiro / fin123</code></div>
-          <div class="acct" data-u="Penedo" data-p="loja123"><b>Loja Penedo</b><code>Penedo / código da loja</code></div>
-          <div class="acct" data-u="São Sebastião" data-p="loja123"><b>Loja São Sebastião</b><code>São Sebastião / código da loja</code></div>
-        </div>
-        <p class="sub" style="margin:8px 2px 0;font-size:12px;">A senha de cada loja é o <b>código da loja</b>. Enquanto os códigos não forem cadastrados, use a senha provisória <b>loja123</b>.</p>
-      </details>
-    </div>
-  </div>`;
-  const errEl = document.getElementById('loginErr');
-  async function doLogin(){
-    errEl.textContent = '';
-    const r = login(document.getElementById('u').value, document.getElementById('p').value);
-    if(!r.ok){ errEl.textContent = r.error; return; }
-    state.operator = null;
-    if(session.role === 'loja') navigate('store', { id: session.storeId });
-    else navigate('dashboard');
+    </div>`;
+    const errEl = document.getElementById('loginErr');
+    const codeEl = document.getElementById('code');
+    async function doLogin(){
+      errEl.textContent = '';
+      const btn = document.getElementById('codeBtn');
+      btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Entrando…';
+      const r = await login(target, codeEl.value);
+      btn.disabled = false; btn.textContent = prev;
+      if(!r.ok){ errEl.textContent = r.error || 'Código incorreto. Tente de novo.'; codeEl.value = ''; codeEl.focus(); return; }
+      state.operator = null;
+      if(session.role === 'loja') navigate('store', { id: session.storeId });
+      else navigate('dashboard');
+    }
+    document.getElementById('codeBtn').addEventListener('click', doLogin);
+    document.getElementById('backBtn').addEventListener('click', renderPicker);
+    codeEl.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); doLogin(); } });
+    codeEl.focus();
   }
-  document.getElementById('loginBtn').addEventListener('click', doLogin);
-  ['u','p'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); doLogin(); } }));
-  app.querySelectorAll('.acct').forEach(el => el.addEventListener('click', () => { document.getElementById('u').value = el.dataset.u; document.getElementById('p').value = el.dataset.p; document.getElementById('p').focus(); }));
-  document.getElementById('u').focus();
+
+  renderPicker();
 }
 
 /* ---------- Tela: Dashboard ---------- */
 async function viewDashboard(){
-  const all = await getAllClosings();
+  // loja só pode ler os próprios caixas (regras do Firestore); financeiro lê todos
+  const all = session.role === 'financeiro' ? await getAllClosings() : await getClosings(session.storeId);
   const visibleStores = session.role === 'financeiro' ? STORES : STORES.filter(s => s.id === session.storeId);
   const scope = new Set(visibleStores.map(s => s.id));
   const periodItems = all.filter(c => scope.has(c.storeId) && periodMatch(c.date, state.period));

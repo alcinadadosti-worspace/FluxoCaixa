@@ -18,46 +18,37 @@ Abra `acqua-fluxo-caixa.html` direto no navegador (duplo clique). Para usar em c
 
 ## Login
 
-- **Financeiro:** usuário `financeiro` · senha `fin123` (vê e confere todas as lojas).
-- **Loja:** usuário = **nome da loja** (ex.: `Penedo`, `São Sebastião`) · senha = **código da loja**.
-  - Também aceita o id curto (`penedo`, `sao.sebastiao`).
-  - Enquanto os códigos não forem cadastrados, a senha provisória é `loja123`.
+A tela inicial mostra um **card para cada acesso** (Financeiro + cada loja). Toque no card e digite o **código**:
 
-## Configuração (as 2 coisas no topo do `<script>`)
+- **Financeiro** — vê e confere todas as lojas.
+- **Cada loja** — dá acesso só àquela loja.
 
-No início do `<script>` há um bloco **">>> CONFIGURE AQUI <<<"** com:
+Com o **Firebase ligado**, o código é a senha real no Firebase Authentication (ver `FIREBASE_SETUP.md`) — não fica no app.
+Sem Firebase, o app roda em **modo demonstração** (códigos de teste: lojas `loja123`, financeiro `fin123`).
 
-1. `firebaseConfig` — cole a configuração do seu projeto Firebase (deixe vazio para rodar só em memória).
-2. `STORE_CODES` — o código (senha) de cada loja.
+## Configuração
 
-### Ligar o Firebase (persistência na nuvem)
+No início do `<script>` há um bloco **">>> CONFIGURE AQUI <<<"** com o `firebaseConfig`
+(cole a configuração do seu projeto Firebase; vazio = roda em memória/demonstração).
 
-1. Crie um projeto em <https://console.firebase.google.com> (plano **Spark/grátis** já basta).
-2. Ative **Firestore Database** e o método de login **Anônimo** (Authentication › Sign-in method).
-3. Em *Configurações do projeto › Seus apps › Web*, copie o objeto de config e cole em `firebaseConfig`.
-4. Publique as **regras de segurança** do Firestore (baseline — exige usuário autenticado):
+### Ligar o Firebase (persistência + login por código)
 
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /closings/{doc} {
-         allow read, write: if request.auth != null;
-       }
-     }
-   }
-   ```
+Passo a passo completo em **[`FIREBASE_SETUP.md`](FIREBASE_SETUP.md)**. Em resumo:
 
-   > MVP: o login do app ainda é local (nome + código), então as regras só exigem que o cliente esteja
-   > autenticado (anônimo). Regras por loja (uma loja não mexe na outra) virão com Firebase Auth real (fase 2).
+1. Criar o projeto e colar o `firebaseConfig`.
+2. Ativar **Authentication › E-mail/senha** e criar um usuário por acesso (e-mail `<id>@acqua.app`, senha = o código).
+3. Criar o **Firestore** e publicar as regras (cada loja só mexe nos próprios caixas; financeiro em todas).
 
-Com `firebaseConfig` preenchido, os dados passam a ser salvos na coleção `closings` e **não resetam mais** ao recarregar.
+Com isso, os dados ficam na coleção `closings` e **não resetam mais**.
 
 ## Pendências / próximos passos
 
-- [ ] Preencher os **códigos das lojas** em `STORE_CODES`.
-- [ ] Criar o projeto Firebase e colar o `firebaseConfig`.
-- [ ] Fase 2: Firebase Auth por loja + regras por loja.
+- [x] Login por card + código; acumulado de falta/sobra por loja.
+- [ ] Criar o projeto Firebase e seguir o `FIREBASE_SETUP.md` (persistência + login por código).
+- [ ] Hospedar (GitHub Pages / Firebase Hosting / Netlify) para uso da equipe no celular.
 - [ ] (Opcional) Importar a venda do sistema por CSV em vez de digitar.
+
+> 🔒 **Segurança:** com o Firebase ligado, os códigos viram senhas no Firebase Authentication
+> (não ficam no código) e as regras isolam cada loja. Em modo demonstração (sem Firebase) valem só os códigos de teste.
 
 Ver `CONTEXTO_ACQUA_FLUXO.md` para o handoff técnico completo.
