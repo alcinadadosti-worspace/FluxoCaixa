@@ -335,6 +335,35 @@
    Camada de dados isolada em Store (trocar por Firebase depois).
    ========================================================================= */
 
+/* ============================================================================
+   >>> CONFIGURE AQUI — as duas únicas coisas que você precisa preencher <<<
+   ============================================================================ */
+
+/* 1) FIREBASE — cole o objeto de configuração do seu projeto (Console do Firebase
+      › Configurações do projeto › Seus apps › Configuração do SDK).
+      Enquanto ficar VAZIO, o app roda só em memória (os dados resetam ao recarregar).
+      Assim que tiver projectId preenchido, passa a salvar na nuvem (Firestore). */
+const firebaseConfig = {
+  // apiKey: "AIza...",
+  // authDomain: "seu-projeto.firebaseapp.com",
+  // projectId: "seu-projeto",
+  // storageBucket: "seu-projeto.appspot.com",
+  // messagingSenderId: "000000000000",
+  // appId: "1:000000000000:web:xxxxxxxx"
+};
+
+/* 2) CÓDIGOS DAS LOJAS — a senha de cada loja no login é o código dela.
+      Preencha com o número/código real de cada loja. Enquanto ficar vazio,
+      a senha provisória continua sendo "loja123" (pra não travar os testes). */
+const STORE_CODES = {
+  'sao-sebastiao':        '',
+  'penedo':               '',
+  'palmeira':             '',
+  'palmeira-sustentavel': '',
+  'teotonio-vilela':      '',
+  'coruripe':             '',
+};
+
 /* ---------- Lojas e operadores (EDITE OS NOMES DAS PESSOAS AQUI) ---------- */
 const STORES = [
   { id:'sao-sebastiao', name:'Loja São Sebastião', loc:'São Sebastião / AL', user:'sao.sebastiao', color:'#23b9cf',
@@ -352,19 +381,75 @@ const STORES = [
 ];
 const storeById = id => STORES.find(s => s.id === id);
 
-/* ---------- Camada de dados (memória; trocar por banco externo) ---------- */
+/* ---------- Camada de dados (memória OU Firebase/Firestore) ----------
+   Mantém os mesmos 4 métodos async (get/set/del/list). Se firebaseConfig
+   estiver preenchido, usa Firestore; senão, cai no Map em memória. Todo o
+   resto do app (getClosings/getAllClosings/findClosing) passa só por aqui. */
 const Store = (() => {
   const mem = new Map();
-  async function get(key){ return mem.has(key) ? mem.get(key) : null; }
-  async function set(key, value){ mem.set(key, value); return value; }
-  async function del(key){ mem.delete(key); }
-  async function list(prefix){ return [...mem.keys()].filter(k => k.startsWith(prefix)); }
-  return { get, set, del, list, hasWS:false };
+  const memBackend = {
+    async get(key){ return mem.has(key) ? mem.get(key) : null; },
+    async set(key, value){ mem.set(key, value); return value; },
+    async del(key){ mem.delete(key); },
+    async list(prefix){ return [...mem.keys()].filter(k => k.startsWith(prefix)); },
+  };
+  let backend = memBackend;
+  const usingFirebase = !!(firebaseConfig && firebaseConfig.projectId);
+  let ready = Promise.resolve();
+
+  if(usingFirebase){
+    ready = (async () => {
+      try{
+        const SDK = 'https://www.gstatic.com/firebasejs/10.12.2/';
+        const [appMod, fs, authMod] = await Promise.all([
+          import(SDK + 'firebase-app.js'),
+          import(SDK + 'firebase-firestore.js'),
+          import(SDK + 'firebase-auth.js'),
+        ]);
+        const fbApp = appMod.initializeApp(firebaseConfig);
+        // login anônimo: baseline de segurança p/ as regras exigirem usuário autenticado
+        try{ await authMod.signInAnonymously(authMod.getAuth(fbApp)); }catch(_){}
+        const db = fs.getFirestore(fbApp);
+        const col = fs.collection(db, 'closings');
+        const ref = key => fs.doc(db, 'closings', key);
+        backend = {
+          async get(key){ const s = await fs.getDoc(ref(key)); return s.exists() ? s.data() : null; },
+          async set(key, value){ await fs.setDoc(ref(key), value); return value; },
+          async del(key){ await fs.deleteDoc(ref(key)); },
+          async list(prefix){
+            const q = fs.query(col, fs.orderBy(fs.documentId()), fs.startAt(prefix), fs.endAt(prefix + ''));
+            const snap = await fs.getDocs(q);
+            return snap.docs.map(d => d.id);
+          },
+        };
+        Store.online = true;
+      }catch(e){
+        console.error('Firebase indisponível — usando dados locais:', e);
+        try{ toast('Sem conexão com o banco — usando dados locais.', 'err'); }catch(_){}
+      }
+    })();
+  }
+
+  return {
+    usingFirebase, online:false,
+    ready: () => ready,
+    get:  async (k)    => { await ready; return backend.get(k); },
+    set:  async (k, v) => { await ready; return backend.set(k, v); },
+    del:  async (k)    => { await ready; return backend.del(k); },
+    list: async (p)    => { await ready; return backend.list(p); },
+  };
 })();
 
-/* ---------- Usuários (acessos de teste) ---------- */
+/* ---------- Usuários / login ----------
+   Loja entra com o NOME DA LOJA (usuário) e o CÓDIGO DA LOJA (senha).
+   Aceita também o id curto (ex.: penedo) e o nome sem o prefixo "Loja ". */
+const norm = s => String(s ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const USERS = { financeiro: { username:'financeiro', password:'fin123', name:'Equipe Financeira', role:'financeiro' } };
-STORES.forEach(s => { USERS[s.user] = { username:s.user, password:'loja123', name:s.name, role:'loja', storeId:s.id }; });
+STORES.forEach(s => {
+  const senha = String(STORE_CODES[s.id] || '').trim() || 'loja123';   // código da loja; provisório "loja123" se vazio
+  const u = { username:s.user, password:senha, name:s.name, role:'loja', storeId:s.id };
+  [s.user, s.name, s.name.replace(/^Loja\s+/i, '')].forEach(k => { USERS[norm(k)] = u; });
+});
 
 /* ---------- Helpers ---------- */
 let _seq = 0;
@@ -435,8 +520,8 @@ let route = { name:'login', params:{} };
 const app = document.getElementById('app');
 
 function login(username, password){
-  const u = USERS[String(username || '').trim().toLowerCase()];
-  if(!u || u.password !== password) return { ok:false, error:'Usuário ou senha não conferem.' };
+  const u = USERS[norm(username)];
+  if(!u || u.password !== String(password)) return { ok:false, error:'Usuário ou senha não conferem.' };
   session = { username:u.username, name:u.name, role:u.role, storeId:u.storeId || null };
   return { ok:true };
 }
@@ -475,6 +560,31 @@ async function getAllClosings(includeDeleted=false){
   return items;
 }
 const findClosing = (storeId, createdAt) => Store.get(`closing:${storeId}:${createdAt}`);
+
+/* acumulado por loja (histórico completo, ignora o filtro de período):
+   soma a dívida (faltas) e a sobra de TODAS as conferências da loja. */
+async function acumuladoLoja(storeId){
+  const list = await getClosings(storeId);   // não-excluídos
+  let falta = 0, sobra = 0, nFalta = 0, nSobra = 0;
+  for(const c of list){
+    if(c.status !== 'conferido' || !c.resultado) continue;
+    if(c.resultado === 'falta'){ falta += Math.abs(c.diferenca || 0); nFalta++; }
+    else if(c.resultado === 'sobra'){ sobra += (c.diferenca || 0); nSobra++; }
+  }
+  falta = +falta.toFixed(2); sobra = +sobra.toFixed(2);
+  return { falta, sobra, saldo:+(sobra - falta).toFixed(2), nFalta, nSobra };
+}
+/* versão síncrona p/ quando já temos a lista de caixas em mãos (ex.: dashboard) */
+function acumuladoFromList(list){
+  let falta = 0, sobra = 0, nFalta = 0, nSobra = 0;
+  for(const c of (list || [])){
+    if(c.status !== 'conferido' || !c.resultado) continue;
+    if(c.resultado === 'falta'){ falta += Math.abs(c.diferenca || 0); nFalta++; }
+    else if(c.resultado === 'sobra'){ sobra += (c.diferenca || 0); nSobra++; }
+  }
+  falta = +falta.toFixed(2); sobra = +sobra.toFixed(2);
+  return { falta, sobra, saldo:+(sobra - falta).toFixed(2), nFalta, nSobra };
+}
 
 async function dateClashes(storeId, dateISO, exceptCreatedAt){
   const list = await getClosings(storeId);
@@ -692,6 +802,15 @@ function statusChip(rec){
   return '<span class="chip chip-ok">✓ Conferido</span>';
 }
 
+function footHTML(){
+  if(Store.usingFirebase){
+    return Store.online
+      ? '<span class="dot"></span>Firebase conectado · dados salvos na nuvem'
+      : '<span class="dot off"></span>Conectando ao banco…';
+  }
+  return '<span class="dot off"></span>Protótipo · dados apenas nesta sessão (sem persistência)';
+}
+
 function bindHeaderControls(exportStoreIds){
   const ps = document.getElementById('periodSel');
   if(ps) ps.addEventListener('change', e => { state.period = e.target.value; render(); });
@@ -707,18 +826,19 @@ function viewLogin(){
     <div class="login-card glass">
       <div class="login-head"><div class="login-orb"></div><h1>Acqua Fluxo</h1><p>Acesse para registrar e conferir o caixa das lojas</p></div>
       <div id="loginForm">
-        <div class="field"><label for="u">Usuário</label><input class="input" id="u" autocomplete="username" placeholder="ex.: financeiro" autocapitalize="none" spellcheck="false"></div>
-        <div class="field"><label for="p">Senha</label><input class="input" id="p" type="password" autocomplete="current-password" placeholder="••••••"></div>
+        <div class="field"><label for="u">Loja ou usuário</label><input class="input" id="u" autocomplete="username" placeholder="ex.: Penedo  ·  ou: financeiro" autocapitalize="none" spellcheck="false"></div>
+        <div class="field"><label for="p">Senha <span class="hint">(loja: código da loja)</span></label><input class="input" id="p" type="password" autocomplete="current-password" placeholder="••••••"></div>
         <button class="btn" type="button" id="loginBtn">Entrar</button>
         <div class="err" id="loginErr"></div>
       </div>
       <details class="demo">
-        <summary>Contas de teste</summary>
+        <summary>Como entrar</summary>
         <div class="accts">
           <div class="acct" data-u="financeiro" data-p="fin123"><b>Financeiro (vê e confere todas)</b><code>financeiro / fin123</code></div>
-          <div class="acct" data-u="penedo" data-p="loja123"><b>Loja Penedo</b><code>penedo / loja123</code></div>
-          <div class="acct" data-u="sao.sebastiao" data-p="loja123"><b>Loja São Sebastião</b><code>sao.sebastiao / loja123</code></div>
+          <div class="acct" data-u="Penedo" data-p="loja123"><b>Loja Penedo</b><code>Penedo / código da loja</code></div>
+          <div class="acct" data-u="São Sebastião" data-p="loja123"><b>Loja São Sebastião</b><code>São Sebastião / código da loja</code></div>
         </div>
+        <p class="sub" style="margin:8px 2px 0;font-size:12px;">A senha de cada loja é o <b>código da loja</b>. Enquanto os códigos não forem cadastrados, use a senha provisória <b>loja123</b>.</p>
       </details>
     </div>
   </div>`;
@@ -755,6 +875,7 @@ async function viewDashboard(){
     const closedToday = cs.some(c => c.date === todayISO());
     const pend = cs.filter(c => c.status === 'enviado' && periodMatch(c.date, state.period)).length;
     const divg = cs.filter(c => c.status === 'conferido' && c.resultado && c.resultado !== 'ok' && periodMatch(c.date, state.period)).length;
+    const accS = acumuladoFromList(cs);   // acumulado da loja (todo o histórico)
     const initial = s.name.replace(/^Loja\s+/, '').trim().charAt(0).toUpperCase();
     const orbStyle = `background:${s.color}26; border:1px solid ${s.color}66; box-shadow:0 0 18px ${s.color}33, inset 0 0 12px ${s.color}1f; color:#eaf6f8;`;
     return `
@@ -769,6 +890,8 @@ async function viewDashboard(){
           ${closedToday ? '<span class="badge ok">Fechada hoje</span>' : '<span class="badge warn">Pendente hoje</span>'}
           ${(session.role === 'financeiro' && pend) ? `<span class="badge neutral">${pend} a conferir</span>` : ''}
           ${(session.role === 'financeiro' && divg) ? `<span class="badge danger">${divg} divergência${divg > 1 ? 's' : ''}</span>` : ''}
+          ${accS.falta ? `<span class="badge danger" title="Dívida acumulada (faltas)">Σ dívida ${money(accS.falta)}</span>` : ''}
+          ${accS.sobra ? `<span class="badge ok" title="Sobra acumulada">Σ sobra ${money(accS.sobra)}</span>` : ''}
         </div>
       </div>
     </button>`;
@@ -790,7 +913,7 @@ async function viewDashboard(){
       </div>
       <div class="store-grid">${cards}</div>
     </div>
-    <div class="foot"><span class="dot off"></span>Protótipo · dados apenas nesta sessão (sem persistência ativa)</div>
+    <div class="foot">${footHTML()}</div>
   `;
   bindHeaderControls(visibleStores.map(s => s.id));
   app.querySelectorAll('.store-card').forEach(el => el.addEventListener('click', () => navigate('store', { id: el.dataset.store })));
@@ -825,7 +948,9 @@ async function viewStore(){
     return;
   }
 
-  const closings = (await getClosings(store.id)).filter(c => periodMatch(c.date, state.period));
+  const allClosings = await getClosings(store.id);
+  const closings = allClosings.filter(c => periodMatch(c.date, state.period));
+  const acc = acumuladoFromList(allClosings);   // acumulado da loja (histórico completo)
   const totalP = closings.reduce((a,c) => a + c.totalDia, 0);
   const sangriaP = closings.reduce((a,c) => a + c.totalSangria, 0);
   const restouP = closings.reduce((a,c) => a + c.sobra, 0);
@@ -929,6 +1054,15 @@ async function viewStore(){
       </div>
       ${opBanner}
       <div class="summary">${metricsRow}</div>
+      <div class="ledger-head" style="margin:22px 0 10px;">
+        <h2 style="margin:0;font-size:17px;">Acumulado da loja</h2>
+        <p class="sub" style="margin:4px 0 0;">Histórico completo de falta e sobra — soma de todas as conferências (não depende do período).</p>
+      </div>
+      <div class="summary">
+        ${metricCard('Dívida acumulada', money(acc.falta), `${acc.nFalta} ${acc.nFalta === 1 ? 'caixa' : 'caixas'} com falta`, acc.falta ? 'accent-amber' : '')}
+        ${metricCard('Sobra acumulada', money(acc.sobra), `${acc.nSobra} ${acc.nSobra === 1 ? 'caixa' : 'caixas'} com sobra`, acc.sobra ? 'accent-green' : '')}
+        ${metricCard('Saldo', (acc.saldo > 0 ? '+' : '') + money(acc.saldo), acc.saldo < 0 ? 'a loja deve' : acc.saldo > 0 ? 'a favor da loja' : 'zerado', acc.saldo < 0 ? 'accent-amber' : acc.saldo > 0 ? 'accent-green' : '')}
+      </div>
       <div class="detail-grid${session.role === 'loja' ? '' : ' single'}">
         ${formPanel}
         <div class="panel glass">
@@ -938,7 +1072,7 @@ async function viewStore(){
         </div>
       </div>
     </div>
-    <div class="foot"><span class="dot off"></span>Protótipo · dados apenas nesta sessão</div>
+    <div class="foot">${footHTML()}</div>
   `;
   bindHeaderControls([store.id]);
   if(backLink) document.getElementById('back').addEventListener('click', () => { editing = null; navigate('dashboard'); });
@@ -1049,7 +1183,11 @@ async function render(){
 }
 
 /* ---------- Boot ---------- */
-(async function boot(){ await seedSamples(); render(); })();
+(async function boot(){
+  await Store.ready();                            // espera o Firebase conectar (se configurado)
+  if(!Store.usingFirebase) await seedSamples();  // dados de exemplo só no modo memória
+  render();
+})();
 
 </script>
 </body>
