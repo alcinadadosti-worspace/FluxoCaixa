@@ -59,5 +59,27 @@ Roda no **Render (Web Service grátis)** + **UptimeRobot** (ping de 5 min) pra n
 
 ## O que o backend expõe
 - `GET /health` — usado pelo UptimeRobot.
-- `POST /notify/caixa-fechado` — chamado pelo app quando uma loja fecha o caixa.
-- `POST /notify/divergencia` — chamado quando o financeiro confere e dá falta/sobra.
+- `POST /notify/caixa-fechado` — quando uma loja fecha o caixa.
+- `POST /notify/divergencia` — quando o financeiro confere e dá falta/sobra.
+- `POST /audit/start` · `POST /audit/pending` · `POST /audit/declare` — auditoria surpresa (Fase 2).
+
+---
+
+# Fase 2 — auditoria surpresa (configuração extra)
+
+A auditoria precisa que o backend leia/grave no banco com segurança. Para isso:
+
+## E) Chave de serviço do Firebase (Service Account)
+1. Firebase Console → ⚙️ **Configurações do projeto** → aba **Contas de serviço**.
+2. Clique em **Gerar nova chave privada** → **Gerar chave** → baixa um arquivo `.json`.
+3. Abra esse `.json` e **copie TODO o conteúdo** (do `{` ao `}`).
+4. No Render → seu serviço → **Environment** → **Add Environment Variable**:
+   - **Key:** `FIREBASE_SERVICE_ACCOUNT`
+   - **Value:** cole o **JSON inteiro**.
+5. **Publique a regra da coleção `auditorias`** (já incluída no bloco de regras em `FIREBASE_SETUP.md`).
+6. **Manual Deploy**. No log deve aparecer: **"Firebase Admin OK — auditoria ativa."** e em `/health` o campo `auditoria` vira `true`.
+
+> 🔒 A chave de serviço dá **acesso total ao banco** — é o segredo mais sensível. Só nas variáveis do Render, **nunca** no repositório nem no chat.
+
+## F) Slack IDs das colaboradoras
+Para a auditoria chegar na pessoa certa, preciso do **Slack ID** (member ID `U...`) de cada operadora. Pode mandar a lista (nome → ID). Para testar, dá pra usar o seu próprio ID em todas.

@@ -51,6 +51,10 @@ Você faz tudo uma vez, pelo navegador. O **plano grátis (Spark)** basta para e
          allow create: if isFin() || ownsStore(request.resource.data.storeId);
          allow update, delete: if isFin() || ownsStore(resource.data.storeId);
        }
+       match /auditorias/{docId} {
+         allow read:  if isFin();   // só o financeiro lê os resultados
+         allow write: if false;     // ninguém escreve pelo navegador — só o backend (Admin)
+       }
      }
    }
    ```

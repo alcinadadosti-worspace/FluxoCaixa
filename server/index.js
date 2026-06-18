@@ -138,11 +138,10 @@ app.post('/audit/pending', async (req, res) => {
     const { storeId, colaborador } = req.body || {};
     if(!storeId || !colaborador) return res.json({ pendente: null });
     if(u.email !== storeEmail(storeId)) return res.status(403).json({ ok:false, error:'loja diferente' });
-    const snap = await db.collection('auditorias')
-      .where('storeId', '==', storeId).where('colaborador', '==', colaborador).where('status', '==', 'pendente')
-      .limit(1).get();
-    if(snap.empty) return res.json({ pendente: null });
-    const d = snap.docs[0];
+    // consulta só por loja (índice automático) e filtra o resto no código — sem índice composto
+    const snap = await db.collection('auditorias').where('storeId', '==', storeId).get();
+    const d = snap.docs.find(x => x.get('colaborador') === colaborador && x.get('status') === 'pendente');
+    if(!d) return res.json({ pendente: null });
     res.json({ pendente: { auditId: d.id, loja: d.get('loja') } });
   }catch(e){ res.status(500).json({ ok:false, error:String(e.message || e) }); }
 });
