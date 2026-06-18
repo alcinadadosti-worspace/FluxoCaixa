@@ -9,6 +9,15 @@ desktop.ini
 node_modules/
 npm-debug.log*
 
+# Segredos — NUNCA commitar (chave de serviço do Firebase, tokens, etc.)
+*firebase-adminsdk*.json
+*serviceaccount*.json
+*service-account*.json
+*.pem
+*.key
+.env
+.env.*
+
 # Editores
 .vscode/
 .idea/

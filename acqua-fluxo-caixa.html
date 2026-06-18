@@ -357,6 +357,12 @@ const firebaseConfig = {
       app separado do backend. Guia: SLACK_SETUP.md */
 const BACKEND_URL = '';
 
+/* 4) SLACK DAS COLABORADORAS (auditoria surpresa) — nome do operador → Slack ID.
+      Vá preenchendo conforme pegar os IDs. Se faltar, o financeiro digita na hora. */
+const SLACK_IDS = {
+  // 'Maryanna Francielly Trajano da Silva': 'U0123ABC',
+};
+
 /* 2) CÓDIGOS DE ACESSO — com o Firebase LIGADO, o código de cada loja e do
       financeiro é a SENHA no Firebase Authentication (e-mail/senha), criada por
       você no console (passo a passo em FIREBASE_SETUP.md). Por isso os códigos
@@ -424,6 +430,11 @@ const Store = (() => {
         Store.signOut = async () => { try{ await authMod.signOut(authInst); }catch(_){} };
         Store.getToken = async () => { try{ return authInst.currentUser ? await authInst.currentUser.getIdToken() : null; }catch(_){ return null; } };
         const db = fs.getFirestore(fbApp);
+        Store.listAuditorias = async (storeId) => {
+          const q = fs.query(fs.collection(db, 'auditorias'), fs.where('storeId', '==', storeId));
+          const snap = await fs.getDocs(q);
+          return snap.docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b) => (b.criadoEm||0) - (a.criadoEm||0));
+        };
         const col = fs.collection(db, 'closings');
         const ref = key => fs.doc(db, 'closings', key);
         backend = {
@@ -450,6 +461,7 @@ const Store = (() => {
     signIn:  async () => ({ ok:false, error:'auth-indisponivel' }),  // sobrescrito quando o Firebase conecta
     signOut: async () => {},
     getToken: async () => null,                                      // idem (idToken do usuário logado)
+    listAuditorias: async () => [],                                  // idem (auditorias da loja — só no Firebase)
     get:  async (k)    => { await ready; return backend.get(k); },
     set:  async (k, v) => { await ready; return backend.set(k, v); },
     del:  async (k)    => { await ready; return backend.del(k); },
@@ -572,6 +584,71 @@ async function notifyBackend(path, payload){
       body: JSON.stringify(payload)
     });
   }catch(_){ /* alerta é opcional; ignora falhas */ }
+}
+
+/* chamada ao backend que PRECISA da resposta (auditoria) */
+async function callBackend(path, payload){
+  const base = BACKEND_URL ? BACKEND_URL.replace(/\/+$/,'') : '';
+  const token = await Store.getToken();
+  if(!token) throw new Error('sem login');
+  const r = await fetch(base + path, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
+    body: JSON.stringify(payload)
+  });
+  return r.json();
+}
+
+/* linha de uma auditoria na área do financeiro */
+function auditRow(a){
+  const chip = a.status === 'declarado'
+    ? (a.resultado === 'ok' ? '<span class="chip chip-ok">✓ bateu</span>'
+       : a.resultado === 'falta' ? `<span class="chip chip-falta">⚠ falta ${money(Math.abs(a.diferenca))}</span>`
+       : `<span class="chip chip-sobra">⚠ sobra ${money(a.diferenca)}</span>`)
+    : '<span class="chip chip-wait">⏳ aguardando</span>';
+  const vals = a.status === 'declarado'
+    ? `Esperado ${money(a.valorEsperado)} · Declarado ${money(a.valorDeclarado)}`
+    : `Esperado ${money(a.valorEsperado)}`;
+  return `<div class="closing-card" style="margin-top:10px;">
+    <div class="cc-head"><div class="cc-date">${esc(a.colaborador)}</div>${chip}</div>
+    <div class="cc-by" style="margin-top:6px;">${vals}${a.declaradoEm ? ' · ' + fmtDateTime(a.declaradoEm) : ''}</div>
+  </div>`;
+}
+
+/* loja: verifica (em 2º plano) se há auditoria pendente para o operador e mostra o banner de declarar */
+async function checkAuditoria(store){
+  if(!Store.usingFirebase || !state.operator) return;
+  let resp;
+  try{ resp = await callBackend('/audit/pending', { storeId:store.id, colaborador:state.operator }); }
+  catch(_){ return; }
+  if(!resp || !resp.pendente) return;
+  const auditId = resp.pendente.auditId;
+  const wrap = app.querySelector('.wrap');
+  if(!wrap) return;
+  const box = document.createElement('div');
+  box.className = 'panel glass';
+  box.style.cssText = 'border:1px solid rgba(240,180,74,.55); margin-bottom:14px;';
+  box.innerHTML = `
+    <h2>🕵️ Auditoria surpresa</h2>
+    <p class="sub">O financeiro pediu uma conferência <b>agora</b>. Conte o dinheiro do caixa e declare o valor contado.</p>
+    <div class="field"><label for="aud-dec">Valor contado no caixa</label><div class="prefix-wrap"><span class="rs">R$</span><input class="input money" id="aud-dec" inputmode="decimal" placeholder="0,00"></div></div>
+    <button class="btn green" type="button" id="aud-dec-btn">Declarar valor</button>
+    <div id="aud-dec-res" style="margin-top:12px;"></div>`;
+  wrap.insertBefore(box, wrap.firstChild);
+  maskMoneyInput(document.getElementById('aud-dec'));
+  document.getElementById('aud-dec-btn').addEventListener('click', async () => {
+    const val = parseNum(document.getElementById('aud-dec').value);
+    if(val <= 0){ toast('Informe o valor contado.', 'err'); return; }
+    const btn = document.getElementById('aud-dec-btn');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    let r; try{ r = await callBackend('/audit/declare', { auditId, valorDeclarado:val }); }catch(_){ r = null; }
+    const res = document.getElementById('aud-dec-res');
+    if(!r || !r.ok){ btn.disabled = false; btn.textContent = 'Declarar valor'; res.innerHTML = '<span class="err">Não foi possível declarar. Tente de novo.</span>'; return; }
+    if(r.resultado === 'ok') res.innerHTML = '<div class="chip chip-ok">✓ Bateu certinho! Obrigada.</div>';
+    else { const d = Math.abs(r.diferenca); res.innerHTML = `<div class="chip chip-${r.resultado}">⚠ Você declarou ${money(val)} — ficou <b>${money(d)} ${r.resultado === 'falta' ? 'A MENOS' : 'A MAIS'}</b> do que o financeiro esperava.</div>`; }
+    document.getElementById('aud-dec').disabled = true;
+    btn.style.display = 'none';
+  });
 }
 
 /* ---------- Modelo + ciclo de vida ---------- */
@@ -1040,6 +1117,7 @@ async function viewStore(){
   const allClosings = await getClosings(store.id);
   const closings = allClosings.filter(c => periodMatch(c.date, state.period));
   const acc = acumuladoFromList(allClosings);   // acumulado da loja (histórico completo)
+  const audits = session.role === 'financeiro' ? await Store.listAuditorias(store.id) : [];
   const totalP = closings.reduce((a,c) => a + c.totalDia, 0);
   const sangriaP = closings.reduce((a,c) => a + c.totalSangria, 0);
   const restouP = closings.reduce((a,c) => a + c.sobra, 0);
@@ -1132,6 +1210,18 @@ async function viewStore(){
         ${metricCard('Fechamentos', String(closings.length), 'No período')}
       `;
 
+  const auditPanel = session.role === 'financeiro' ? `
+        <div class="panel glass">
+          <h2>🕵️ Auditoria surpresa</h2>
+          <p class="sub">Escolha a colaboradora e informe o valor que deveria ter no caixa agora. Ela recebe um aviso no Slack pra contar e declarar.</p>
+          <div class="field"><label for="aud-op">Colaboradora</label><select class="input" id="aud-op">${store.operadores.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select></div>
+          <div class="field"><label for="aud-slack">Slack ID dela <span class="hint">(preenche sozinho se cadastrado)</span></label><input class="input" id="aud-slack" placeholder="U..." autocapitalize="none" spellcheck="false"></div>
+          <div class="field"><label for="aud-val">Valor esperado no caixa</label><div class="prefix-wrap"><span class="rs">R$</span><input class="input money" id="aud-val" inputmode="decimal" placeholder="0,00"></div></div>
+          <button class="btn" type="button" id="aud-send">Enviar auditoria surpresa</button>
+          <div class="block-head" style="margin-top:18px;"><span>Auditorias desta loja</span></div>
+          <div class="aud-list">${audits.length ? audits.map(auditRow).join('') : '<div class="sub">Nenhuma auditoria ainda.</div>'}</div>
+        </div>` : '';
+
   app.innerHTML = `
     ${topbar()}
     <div class="wrap">
@@ -1154,6 +1244,7 @@ async function viewStore(){
       </div>
       <div class="detail-grid${session.role === 'loja' ? '' : ' single'}">
         ${formPanel}
+        ${auditPanel}
         <div class="panel glass">
           <h2>${session.role === 'financeiro' ? 'Caixas enviados pelas lojas' : 'Caixas do período'}</h2>
           <p class="sub">${closings.length} ${closings.length === 1 ? 'caixa' : 'caixas'} · ${PERIOD_LABEL[state.period].toLowerCase()}${session.role === 'financeiro' ? ' · confira a venda do sistema em cada caixa' : ''}</p>
@@ -1238,6 +1329,29 @@ async function viewStore(){
   });
   }
 
+  /* financeiro: enviar auditoria surpresa */
+  if(session.role === 'financeiro'){
+    const opSel = document.getElementById('aud-op');
+    const slackInp = document.getElementById('aud-slack');
+    const valInp = document.getElementById('aud-val');
+    if(valInp) maskMoneyInput(valInp);
+    const fillSlack = () => { if(slackInp && opSel) slackInp.value = SLACK_IDS[opSel.value] || ''; };
+    if(opSel){ fillSlack(); opSel.addEventListener('change', fillSlack); }
+    const sendBtn = document.getElementById('aud-send');
+    if(sendBtn) sendBtn.addEventListener('click', async () => {
+      const colaborador = opSel.value;
+      const slackId = (slackInp.value || '').trim();
+      const valorEsperado = parseNum(valInp.value);
+      if(!slackId){ toast('Informe o Slack ID da colaboradora.', 'err'); return; }
+      if(valorEsperado <= 0){ toast('Informe o valor esperado.', 'err'); return; }
+      sendBtn.disabled = true; sendBtn.textContent = 'Enviando…';
+      let r; try{ r = await callBackend('/audit/start', { storeId:store.id, loja:store.name, colaborador, slackId, valorEsperado }); }catch(_){ r = null; }
+      sendBtn.disabled = false; sendBtn.textContent = 'Enviar auditoria surpresa';
+      if(r && r.ok){ toast('Auditoria enviada para ' + colaborador + ' 🕵️'); navigate('store', { id: store.id }); }
+      else { toast((r && r.error) ? r.error : 'Não foi possível enviar.', 'err'); }
+    });
+  }
+
   /* ações do histórico */
   app.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => { editing = { storeId: store.id, createdAt: b.dataset.edit }; render(); window.scrollTo({ top:0, behavior:'smooth' }); }));
   app.querySelectorAll('[data-conf]').forEach(b => b.addEventListener('click', async () => {
@@ -1262,6 +1376,8 @@ async function viewStore(){
     const rec = await findClosing(store.id, b.dataset.del);
     modal({ title:'Excluir caixa?', message:`Caixa de ${fmtDate(rec.date)} — ${money(rec.totalDia)}. Fica registrado quem excluiu e por quê.`, danger:true, input:{ label:'Motivo da exclusão', placeholder:'obrigatório', required:true }, confirmText:'Excluir', onConfirm: async (m) => { await excluirClosing(rec, m); toast('Caixa excluído.'); navigate('store', { id: store.id }); } });
   }));
+
+  if(session.role === 'loja') checkAuditoria(store);
 }
 
 /* ---------- Render ---------- */
