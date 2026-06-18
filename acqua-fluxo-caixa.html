@@ -358,9 +358,27 @@ const firebaseConfig = {
 const BACKEND_URL = '';
 
 /* 4) SLACK DAS COLABORADORAS (auditoria surpresa) — nome do operador → Slack ID.
-      Vá preenchendo conforme pegar os IDs. Se faltar, o financeiro digita na hora. */
+      O financeiro só escolhe a pessoa; o Slack dela já vem daqui.
+      (Por enquanto: o ID de teste do dono em todas. Troque pelo de cada uma.) */
 const SLACK_IDS = {
-  // 'Maryanna Francielly Trajano da Silva': 'U0123ABC',
+  'Maryanna Francielly Trajano da Silva': 'U0895CZ8HU7',
+  'Nayara Soares Kimura': 'U0895CZ8HU7',
+  'Kemilly Rafaelly Souza Silva (Gerente)': 'U0895CZ8HU7',
+  'Amanda (Auditora)': 'U0895CZ8HU7',
+  'Deise Gislaine Silva Vitor': 'U0895CZ8HU7',
+  'Maria Fernanda Gomes Vieira': 'U0895CZ8HU7',
+  'Joanna Queiroz': 'U0895CZ8HU7',
+  'Maria Taciane (Gerente)': 'U0895CZ8HU7',
+  'Maria Cicília Brito Veiga': 'U0895CZ8HU7',
+  'Yasmin Abília Ferro da Silva': 'U0895CZ8HU7',
+  'Eduarda Pereira Costa Silva': 'U0895CZ8HU7',
+  'Tayná Félix': 'U0895CZ8HU7',
+  'Eliene Da Silva Santos': 'U0895CZ8HU7',
+  'Josenildo Alves': 'U0895CZ8HU7',
+  'Camille Kauane Da Silva Nunes': 'U0895CZ8HU7',
+  'Shayane Ferreira': 'U0895CZ8HU7',
+  'Ana Paula Amaral Santos Ismerim': 'U0895CZ8HU7',
+  'Bruna Rayane Oliveira dos Santos': 'U0895CZ8HU7',
 };
 
 /* 2) CÓDIGOS DE ACESSO — com o Firebase LIGADO, o código de cada loja e do
@@ -1215,7 +1233,6 @@ async function viewStore(){
           <h2>🕵️ Auditoria surpresa</h2>
           <p class="sub">Escolha a colaboradora e informe o valor que deveria ter no caixa agora. Ela recebe um aviso no Slack pra contar e declarar.</p>
           <div class="field"><label for="aud-op">Colaboradora</label><select class="input" id="aud-op">${store.operadores.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select></div>
-          <div class="field"><label for="aud-slack">Slack ID dela <span class="hint">(preenche sozinho se cadastrado)</span></label><input class="input" id="aud-slack" placeholder="U..." autocapitalize="none" spellcheck="false"></div>
           <div class="field"><label for="aud-val">Valor esperado no caixa</label><div class="prefix-wrap"><span class="rs">R$</span><input class="input money" id="aud-val" inputmode="decimal" placeholder="0,00"></div></div>
           <button class="btn" type="button" id="aud-send">Enviar auditoria surpresa</button>
           <div class="block-head" style="margin-top:18px;"><span>Auditorias desta loja</span></div>
@@ -1332,17 +1349,14 @@ async function viewStore(){
   /* financeiro: enviar auditoria surpresa */
   if(session.role === 'financeiro'){
     const opSel = document.getElementById('aud-op');
-    const slackInp = document.getElementById('aud-slack');
     const valInp = document.getElementById('aud-val');
     if(valInp) maskMoneyInput(valInp);
-    const fillSlack = () => { if(slackInp && opSel) slackInp.value = SLACK_IDS[opSel.value] || ''; };
-    if(opSel){ fillSlack(); opSel.addEventListener('change', fillSlack); }
     const sendBtn = document.getElementById('aud-send');
     if(sendBtn) sendBtn.addEventListener('click', async () => {
       const colaborador = opSel.value;
-      const slackId = (slackInp.value || '').trim();
+      const slackId = SLACK_IDS[colaborador];
       const valorEsperado = parseNum(valInp.value);
-      if(!slackId){ toast('Informe o Slack ID da colaboradora.', 'err'); return; }
+      if(!slackId){ toast('Essa pessoa ainda não tem Slack cadastrado.', 'err'); return; }
       if(valorEsperado <= 0){ toast('Informe o valor esperado.', 'err'); return; }
       sendBtn.disabled = true; sendBtn.textContent = 'Enviando…';
       let r; try{ r = await callBackend('/audit/start', { storeId:store.id, loja:store.name, colaborador, slackId, valorEsperado }); }catch(_){ r = null; }
