@@ -5,6 +5,10 @@ desktop.ini
 *.tmp
 *.bak
 
+# Node
+node_modules/
+npm-debug.log*
+
 # Editores
 .vscode/
 .idea/

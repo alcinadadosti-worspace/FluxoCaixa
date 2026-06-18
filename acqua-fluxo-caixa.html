@@ -352,6 +352,11 @@ const firebaseConfig = {
   appId: "1:105776062571:web:d907a4105b31659458112e"
 };
 
+/* 3) BOT DO SLACK (opcional) — cole aqui o link do backend de alertas depois de
+      publicá-lo no Render (ex.: "https://acqua-fluxo-bot.onrender.com").
+      Vazio = alertas do Slack desligados. Guia: SLACK_SETUP.md */
+const BACKEND_URL = '';
+
 /* 2) CÓDIGOS DE ACESSO — com o Firebase LIGADO, o código de cada loja e do
       financeiro é a SENHA no Firebase Authentication (e-mail/senha), criada por
       você no console (passo a passo em FIREBASE_SETUP.md). Por isso os códigos
@@ -417,6 +422,7 @@ const Store = (() => {
           catch(e){ return { ok:false, error:(e && e.code) ? e.code : String(e) }; }
         };
         Store.signOut = async () => { try{ await authMod.signOut(authInst); }catch(_){} };
+        Store.getToken = async () => { try{ return authInst.currentUser ? await authInst.currentUser.getIdToken() : null; }catch(_){ return null; } };
         const db = fs.getFirestore(fbApp);
         const col = fs.collection(db, 'closings');
         const ref = key => fs.doc(db, 'closings', key);
@@ -443,6 +449,7 @@ const Store = (() => {
     ready: () => ready,
     signIn:  async () => ({ ok:false, error:'auth-indisponivel' }),  // sobrescrito quando o Firebase conecta
     signOut: async () => {},
+    getToken: async () => null,                                      // idem (idToken do usuário logado)
     get:  async (k)    => { await ready; return backend.get(k); },
     set:  async (k, v) => { await ready; return backend.set(k, v); },
     del:  async (k)    => { await ready; return backend.del(k); },
@@ -552,6 +559,20 @@ function logout(){ Store.signOut(); session = null; state.operator = null; editi
 function navigate(name, params={}){ route = { name, params }; render(); }
 const actor = () => session.role === 'loja' ? (state.operator || session.name) : session.name;
 
+/* alertas do Slack (best-effort): envia pro backend; nunca trava o app */
+async function notifyBackend(path, payload){
+  if(!BACKEND_URL || !Store.usingFirebase) return;
+  try{
+    const token = await Store.getToken();
+    if(!token) return;
+    await fetch(BACKEND_URL.replace(/\/+$/,'') + path, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
+      body: JSON.stringify(payload)
+    });
+  }catch(_){ /* alerta é opcional; ignora falhas */ }
+}
+
 /* ---------- Modelo + ciclo de vida ---------- */
 function mapSangrias(list, dateISO){
   return (list || []).map(s => ({ valor:+(Number(s.valor)||0), doc:onlyDigits(s.doc), nota:(s.nota||'').trim(), data:s.data||dateISO, motivo:(s.motivo||'').trim() }));
@@ -615,7 +636,9 @@ async function dateClashes(storeId, dateISO, exceptCreatedAt){
 }
 async function saveNewClosing(storeId, dateISO, sobra, sangrias){
   const rec = makeClosing(storeId, dateISO, sobra, sangrias, actor());
-  await Store.set(keyFor(rec), rec); return rec;
+  await Store.set(keyFor(rec), rec);
+  notifyBackend('/notify/caixa-fechado', { loja:(storeById(storeId)||{}).name, operador:rec.operador, total:money(rec.totalDia), data:fmtDate(rec.date) });
+  return rec;
 }
 async function updateClosing(rec, dateISO, sobra, sangrias){
   const list = mapSangrias(sangrias, dateISO);
@@ -638,6 +661,9 @@ async function conferirClosing(rec, vendaSistema){
   rec.resultado = classifica(rec.diferenca);
   rec.audit.push({ acao:'conferido', por:actor(), papel:session.role, em:Date.now(), obs:'venda sistema ' + money(rec.vendaSistema) + ' · ' + resultadoTexto(rec) });
   await Store.set(keyFor(rec), rec);
+  if(rec.resultado && rec.resultado !== 'ok'){
+    notifyBackend('/notify/divergencia', { loja:(storeById(rec.storeId)||{}).name, data:fmtDate(rec.date), resultado:rec.resultado, diferenca:money(Math.abs(rec.diferenca)), venda:money(rec.vendaSistema), apurado:money(rec.totalDia) });
+  }
 }
 async function reabrirClosing(rec, motivo){
   rec.status = 'enviado';
