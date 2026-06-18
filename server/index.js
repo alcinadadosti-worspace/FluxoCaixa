@@ -1,22 +1,25 @@
 // =============================================================================
 // Acqua Fluxo — backend de alertas no Slack (Fase 1: caixa fechado + divergência)
+// Os alertas vão por MENSAGEM DIRETA (DM) para usuários, nunca para canais.
 // Node 18+ (fetch nativo). Deploy: Render › Web Service › Root Directory: server
 // Variáveis de ambiente (no Render, NÃO no código):
-//   SLACK_BOT_TOKEN   token do bot do Slack (xoxb-...)            [obrigatório]
-//   SLACK_CHANNEL     canal do financeiro (ID "C0..." ou "#nome") [obrigatório]
-//   FIREBASE_API_KEY  apiKey do projeto (valida quem chama)       [obrigatório]
-//   ALLOWED_ORIGINS   origens liberadas (CSV) ou "*"              [opcional]
+//   SLACK_BOT_TOKEN    token do bot do Slack (xoxb-...)                 [obrigatório]
+//   FINANCE_SLACK_IDS  IDs Slack do financeiro (CSV, ex.: U01AB,U02CD)  [obrigatório]
+//   FIREBASE_API_KEY   apiKey do projeto (valida quem chama)            [obrigatório]
+//   ALLOWED_ORIGINS    origens liberadas (CSV) ou "*"                   [opcional]
 // =============================================================================
 import express from 'express';
 import cors from 'cors';
 
 const {
   SLACK_BOT_TOKEN = '',
-  SLACK_CHANNEL = '',
+  FINANCE_SLACK_IDS = '',
   FIREBASE_API_KEY = '',
   ALLOWED_ORIGINS = '*',
   PORT = 3000,
 } = process.env;
+
+const financeIds = FINANCE_SLACK_IDS.split(',').map(s => s.trim()).filter(Boolean);
 
 const app = express();
 app.use(express.json());
@@ -24,16 +27,26 @@ const origins = ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({ origin: origins.includes('*') ? true : origins }));
 
 // ---- Slack ----
-async function slackPost(text){
-  if(!SLACK_BOT_TOKEN || !SLACK_CHANNEL) throw new Error('Slack não configurado (SLACK_BOT_TOKEN / SLACK_CHANNEL)');
-  const r = await fetch('https://slack.com/api/chat.postMessage', {
+async function slackApi(method, payload){
+  const r = await fetch('https://slack.com/api/' + method, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: 'Bearer ' + SLACK_BOT_TOKEN },
-    body: JSON.stringify({ channel: SLACK_CHANNEL, text }),
+    body: JSON.stringify(payload),
   });
   const j = await r.json();
-  if(!j.ok) throw new Error('Slack: ' + j.error);
+  if(!j.ok) throw new Error(method + ': ' + j.error);
   return j;
+}
+// DM para um usuário pelo Slack ID (abre a conversa e posta)
+async function slackDM(userId, text){
+  if(!SLACK_BOT_TOKEN) throw new Error('SLACK_BOT_TOKEN não configurado');
+  const open = await slackApi('conversations.open', { users: userId });
+  await slackApi('chat.postMessage', { channel: open.channel.id, text });
+}
+// DM para todos os IDs do financeiro
+async function dmFinance(text){
+  if(!financeIds.length) throw new Error('FINANCE_SLACK_IDS não configurado');
+  for(const id of financeIds) await slackDM(id, text);
 }
 
 // ---- valida o login do Firebase (ID token enviado pelo app) ----
@@ -63,7 +76,7 @@ app.post('/notify/caixa-fechado', async (req, res) => {
   if(!(await requireUser(req, res))) return;
   try{
     const { loja = '—', operador = '—', total = '—', data = '—' } = req.body || {};
-    await slackPost(`🔔 *Caixa fechado* — ${loja}\nOperador(a): *${operador}*  ·  Data: ${data}\nTotal apurado: *${total}*`);
+    await dmFinance(`🔔 *Caixa fechado* — ${loja}\nOperador(a): *${operador}*  ·  Data: ${data}\nTotal apurado: *${total}*`);
     res.json({ ok:true });
   }catch(e){ res.status(500).json({ ok:false, error:String(e.message || e) }); }
 });
@@ -73,7 +86,7 @@ app.post('/notify/divergencia', async (req, res) => {
   try{
     const { loja = '—', data = '—', resultado = '', diferenca = '—', venda = '—', apurado = '—' } = req.body || {};
     const emoji = resultado === 'falta' ? '🔴' : '🟠';
-    await slackPost(`${emoji} *Divergência na conferência* — ${loja}\nData: ${data}  ·  Resultado: *${String(resultado).toUpperCase()} ${diferenca}*\nVenda (sistema): ${venda}  ·  Apurado (loja): ${apurado}`);
+    await dmFinance(`${emoji} *Divergência na conferência* — ${loja}\nData: ${data}  ·  Resultado: *${String(resultado).toUpperCase()} ${diferenca}*\nVenda (sistema): ${venda}  ·  Apurado (loja): ${apurado}`);
     res.json({ ok:true });
   }catch(e){ res.status(500).json({ ok:false, error:String(e.message || e) }); }
 });

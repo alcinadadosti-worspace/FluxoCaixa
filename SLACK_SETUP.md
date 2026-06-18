@@ -12,11 +12,13 @@ Roda no **Render (Web Service grátis)** + **UptimeRobot** (ping de 5 min) pra n
 1. Acesse <https://api.slack.com/apps> → **Create New App** → **From scratch**.
 2. Nome: `Acqua Fluxo`; escolha o **workspace** → **Create App**.
 3. Menu lateral **OAuth & Permissions** → role até **Scopes** → **Bot Token Scopes** → **Add an OAuth Scope** → adicione:
-   - `chat:write`
+   - `chat:write` — mandar mensagens
+   - `im:write` — abrir conversa privada (DM) com a pessoa
 4. Suba até o topo → **Install to Workspace** → **Allow**.
 5. Copie o **Bot User OAuth Token** (começa com `xoxb-...`). **É secreto** — vai só nas variáveis do Render.
-6. No Slack, crie (ou escolha) o **canal do financeiro** (ex.: `#financeiro-caixa`) e **convide o bot**: dentro do canal, digite `/invite @Acqua Fluxo`.
-7. Pegue o **ID do canal**: clique no nome do canal → lá embaixo aparece **Channel ID** (`C0...`). (Pode usar `#financeiro-caixa` também, mas o ID é mais garantido.)
+6. Os alertas vão por **mensagem direta (DM)** para pessoas — **nunca** para canais/grupos. Pegue o **Slack ID** de cada pessoa do **financeiro** que deve receber os alertas:
+   - No Slack, clique na **foto/nome da pessoa** → **Ver perfil** → botão **⋮ (Mais)** → **Copiar ID do membro** (*Copy member ID*). É algo como `U01ABCD23`.
+   - Se for mais de uma pessoa, junte os IDs separados por vírgula.
 
 ## B) Publicar o backend no Render
 1. Render → **New +** → **Web Service** → conectar o repositório **FluxoCaixa**.
@@ -34,7 +36,7 @@ Roda no **Render (Web Service grátis)** + **UptimeRobot** (ping de 5 min) pra n
    | Key | Value |
    |---|---|
    | `SLACK_BOT_TOKEN` | o `xoxb-...` do passo A5 |
-   | `SLACK_CHANNEL` | o ID `C0...` (ou `#financeiro-caixa`) |
+   | `FINANCE_SLACK_IDS` | IDs do financeiro separados por vírgula (ex.: `U01ABCD23,U04EFGH56`) |
    | `FIREBASE_API_KEY` | `AIzaSyBDvpsFyyTKUbKnUxCPa4G4Gh-987fsZRA` |
    | `ALLOWED_ORIGINS` | o link do app (ex.: `https://acqua-fluxo.onrender.com`) — ou `*` por enquanto |
 4. **Create Web Service**. Espere ficar **Live** e copie a URL (ex.: `https://acqua-fluxo-bot.onrender.com`).
@@ -46,8 +48,8 @@ Roda no **Render (Web Service grátis)** + **UptimeRobot** (ping de 5 min) pra n
 3. **Monitoring interval:** 5 minutos → **Create Monitor**.
 
 ## D) Testar
-- Entrar no app como **uma loja** e lançar um caixa → cai um alerta **"Caixa fechado"** no canal.
-- Entrar como **financeiro** e conferir com **falta/sobra** → alerta **"Divergência"**.
+- Entrar no app como **uma loja** e lançar um caixa → chega uma **DM "Caixa fechado"** pra(s) pessoa(s) do financeiro.
+- Entrar como **financeiro** e conferir com **falta/sobra** → chega uma **DM "Divergência"**.
 
 ---
 
