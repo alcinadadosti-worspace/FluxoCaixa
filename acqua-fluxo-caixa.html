@@ -530,7 +530,7 @@ let route = { name:'login', params:{} };
 const app = document.getElementById('app');
 
 const LOGIN_EMAIL_DOMAIN = 'acqua.app';   // e-mails internos do Firebase Auth: <id>@acqua.app
-const fbPassword = code => String(code).trim().padStart(6, '0');  // Firebase exige senha >= 6 chars; código de 5 dígitos vira 6 com zero à esquerda
+const fbPassword = code => String(code).trim() + '0';  // Firebase exige senha >= 6 chars; o código (5 díg.) recebe um zero NO FINAL (igual ao cadastrado no Auth)
 async function login(target, code){
   const isFin = target.kind === 'financeiro';
   const email = (isFin ? 'financeiro' : target.storeId) + '@' + LOGIN_EMAIL_DOMAIN;

@@ -32,7 +32,9 @@ Você faz tudo uma vez, pelo navegador. O **plano grátis (Spark)** basta para e
    | Teotônio Vilela | `teotonio-vilela@acqua.app` | _o código da loja_ |
    | Coruripe | `coruripe@acqua.app` | _o código da loja_ |
 
-   > Os e-mails são **internos** — não precisam existir de verdade nem receber nada. O que importa é o e-mail **exatamente** como está na tabela e a senha = o código.
+   > Os e-mails são **internos** — não precisam existir de verdade nem receber nada. O que importa é o e-mail **exatamente** como está na tabela.
+   >
+   > ⚠️ **Senha:** o Firebase exige no mínimo **6 caracteres**, e os códigos têm 5 dígitos. Por isso a senha de cada usuário é **o código + um zero no FINAL** (ex.: código `24669` → senha `246690`). A pessoa da loja continua digitando só o código de 5 dígitos; o app acrescenta o zero sozinho.
 
 ## 4. Criar o banco (Firestore) e publicar as regras
 1. Menu lateral › **Firestore Database** › **Criar banco de dados** › comece em **modo de produção** › escolha a região (ex.: `southamerica-east1` / São Paulo).
