@@ -10,6 +10,8 @@
 // =============================================================================
 import express from 'express';
 import cors from 'cors';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const {
   SLACK_BOT_TOKEN = '',
@@ -90,5 +92,11 @@ app.post('/notify/divergencia', async (req, res) => {
     res.json({ ok:true });
   }catch(e){ res.status(500).json({ ok:false, error:String(e.message || e) }); }
 });
+
+// Serve TAMBÉM o app (front-end), que está na raiz do repositório (um deploy só):
+// "/" -> index.html (redireciona p/ acqua-fluxo-caixa.html). As rotas de API
+// acima têm prioridade; o static só responde quando existe o arquivo pedido.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+app.use(express.static(path.join(__dirname, '..')));
 
 app.listen(PORT, () => console.log('Acqua Fluxo bot ouvindo na porta ' + PORT));

@@ -352,10 +352,10 @@ const firebaseConfig = {
   appId: "1:105776062571:web:d907a4105b31659458112e"
 };
 
-/* 3) BOT DO SLACK (opcional) — cole aqui o link do backend de alertas depois de
-      publicá-lo no Render (ex.: "https://acqua-fluxo-bot.onrender.com").
-      Vazio = alertas do Slack desligados. Guia: SLACK_SETUP.md */
-const BACKEND_URL = 'https://fluxocaixa-4wtb.onrender.com';
+/* 3) BOT DO SLACK — o próprio backend serve este app, então deixe VAZIO para
+      usar a MESMA origem (mesmo endereço). Só preencha se um dia hospedar o
+      app separado do backend. Guia: SLACK_SETUP.md */
+const BACKEND_URL = '';
 
 /* 2) CÓDIGOS DE ACESSO — com o Firebase LIGADO, o código de cada loja e do
       financeiro é a SENHA no Firebase Authentication (e-mail/senha), criada por
@@ -561,11 +561,12 @@ const actor = () => session.role === 'loja' ? (state.operator || session.name) :
 
 /* alertas do Slack (best-effort): envia pro backend; nunca trava o app */
 async function notifyBackend(path, payload){
-  if(!BACKEND_URL || !Store.usingFirebase) return;
+  if(!Store.usingFirebase) return;                                 // alertas só no modo Firebase
+  const base = BACKEND_URL ? BACKEND_URL.replace(/\/+$/,'') : '';  // vazio = mesma origem (o backend serve o app)
   try{
     const token = await Store.getToken();
     if(!token) return;
-    await fetch(BACKEND_URL.replace(/\/+$/,'') + path, {
+    await fetch(base + path, {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + token },
       body: JSON.stringify(payload)
