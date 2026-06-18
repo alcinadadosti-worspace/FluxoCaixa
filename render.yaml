@@ -1,0 +1,11 @@
+# Render Blueprint — Acqua Fluxo
+# Site estático (HTML puro, sem build nem servidor).
+# Uso: painel do Render → New → Blueprint → conectar o repositório FluxoCaixa.
+# (Ou crie um "Static Site" manualmente: Build Command vazio, Publish Directory ".")
+services:
+  - type: web
+    name: acqua-fluxo
+    runtime: static
+    buildCommand: "echo sem build"
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: false
