@@ -460,7 +460,12 @@ const Store = (() => {
           async set(key, value){ await fs.setDoc(ref(key), value); return value; },
           async del(key){ await fs.deleteDoc(ref(key)); },
           async list(prefix){
-            const q = fs.query(col, fs.orderBy(fs.documentId()), fs.startAt(prefix), fs.endAt(prefix + ''));
+            // por loja ("closing:<id>:"): filtra pelo campo storeId — compatível com as regras de
+            // segurança do Firestore. Geral ("closing:"): varre por id (permitido só p/ financeiro).
+            const m = prefix.match(/^closing:([^:]+):$/);
+            const q = m
+              ? fs.query(col, fs.where('storeId', '==', m[1]))
+              : fs.query(col, fs.orderBy(fs.documentId()), fs.startAt(prefix), fs.endAt(prefix + ''));
             const snap = await fs.getDocs(q);
             return snap.docs.map(d => d.id);
           },

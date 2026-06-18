@@ -20,6 +20,7 @@ const {
   FIREBASE_API_KEY = '',
   FIREBASE_SERVICE_ACCOUNT = '',
   ALLOWED_ORIGINS = '*',
+  APP_URL = 'https://fluxocaixa-4wtb.onrender.com',
   PORT = 3000,
 } = process.env;
 
@@ -55,10 +56,10 @@ async function slackApi(method, payload){
   if(!j.ok) throw new Error(method + ': ' + j.error);
   return j;
 }
-async function slackDM(userId, text){
+async function slackDM(userId, text, blocks){
   if(!SLACK_BOT_TOKEN) throw new Error('SLACK_BOT_TOKEN não configurado');
   const open = await slackApi('conversations.open', { users: userId });
-  await slackApi('chat.postMessage', { channel: open.channel.id, text });
+  await slackApi('chat.postMessage', { channel: open.channel.id, text, ...(blocks ? { blocks } : {}) });
 }
 async function dmFinance(text){
   if(!financeIds.length) throw new Error('FINANCE_SLACK_IDS não configurado');
@@ -125,7 +126,12 @@ app.post('/audit/start', async (req, res) => {
       valorEsperado: Number(valorEsperado),
       status: 'pendente', criadoPor: u.email, criadoEm: Date.now(),
     });
-    await slackDM(slackId, `🕵️ *Auditoria surpresa* — ${loja}\nOlá, ${colaborador}! Conte o dinheiro do caixa *agora* e *declare o valor no app* (abra o Acqua Fluxo na sua loja).`);
+    await slackDM(slackId,
+      `🕵️ Auditoria surpresa — ${loja}. Olá, ${colaborador}! Conte o dinheiro do caixa agora e declare no app.`,
+      [
+        { type:'section', text:{ type:'mrkdwn', text:`🕵️ *Auditoria surpresa* — ${loja}\nOlá, *${colaborador}*! Conte o dinheiro do caixa *agora* e declare o valor no app.` } },
+        { type:'actions', elements:[ { type:'button', text:{ type:'plain_text', text:'Abrir o Acqua Fluxo' }, url: APP_URL, style:'primary' } ] },
+      ]);
     res.json({ ok:true, auditId: ref.id });
   }catch(e){ res.status(500).json({ ok:false, error:String(e.message || e) }); }
 });
