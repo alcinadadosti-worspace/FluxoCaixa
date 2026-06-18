@@ -325,7 +325,13 @@
 </head>
 <body>
   <div class="bg" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span></div>
-  <div id="app"></div>
+  <div id="app">
+    <div class="login-screen"><div class="login-card glass" style="text-align:center;">
+      <div class="login-orb"></div>
+      <h1 style="font-size:18px;margin:0;">Acqua Fluxo</h1>
+      <p class="sub" style="margin-top:8px;">Carregando…</p>
+    </div></div>
+  </div>
   <div class="toast" id="toast"></div>
 
 <script>
@@ -579,7 +585,8 @@ async function login(target, code){
   const nome  = isFin ? 'Equipe Financeira' : target.name;
   if(Store.usingFirebase){
     await Store.ready();
-    const r = await Store.signIn(email, fbPassword(code));
+    let r = await Store.signIn(email, fbPassword(code));              // código de 5 díg. (o app põe o zero)
+    if(!r.ok) r = await Store.signIn(email, String(code).trim());     // tolera quem digitou já com o zero (6 díg.)
     if(!r.ok) return { ok:false, error:'Código incorreto.' };
     session = { username:(isFin ? 'financeiro' : target.user), name:nome, role:(isFin ? 'financeiro' : 'loja'), storeId:(isFin ? null : target.storeId), email };
     return { ok:true };
