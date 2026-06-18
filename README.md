@@ -1,4 +1,4 @@
-# Acqua Fluxo — Fechamento de Caixa
+# Fechamento de Caixa — Grupo Alcina Maria
 
 App web de **fechamento e conferência de caixa** das 6 lojas O Boticário do Grupo Alcina Maria (AL).
 Arquivo único `acqua-fluxo-caixa.html` (HTML + CSS + JS puro, **sem build, sem servidor**) — é só abrir no navegador.

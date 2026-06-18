@@ -130,7 +130,7 @@ app.post('/audit/start', async (req, res) => {
       `🕵️ Auditoria surpresa — ${loja}. Olá, ${colaborador}! Conte o dinheiro do caixa agora e declare no app.`,
       [
         { type:'section', text:{ type:'mrkdwn', text:`🕵️ *Auditoria surpresa* — ${loja}\nOlá, *${colaborador}*! Conte o dinheiro do caixa *agora* e declare o valor no app.` } },
-        { type:'actions', elements:[ { type:'button', text:{ type:'plain_text', text:'Abrir o Acqua Fluxo' }, url: APP_URL, style:'primary' } ] },
+        { type:'actions', elements:[ { type:'button', text:{ type:'plain_text', text:'Abrir o app de caixa' }, url: APP_URL, style:'primary' } ] },
       ]);
     res.json({ ok:true, auditId: ref.id });
   }catch(e){ res.status(500).json({ ok:false, error:String(e.message || e) }); }
